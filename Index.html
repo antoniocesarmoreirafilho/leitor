@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Localiza Peças</title>
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#f3f4f6;color:#111827;font-family:Arial,Helvetica,sans-serif}
+header{background:#111827;color:white;padding:18px 16px;position:sticky;top:0;z-index:10}
+header h1{margin:0;font-size:22px} header p{margin:5px 0 0;color:#cbd5e1;font-size:13px}
+main{max-width:650px;margin:auto;padding:14px 12px 35px}
+.card{background:white;border-radius:18px;padding:16px;margin-bottom:12px;box-shadow:0 2px 10px #0000000c}
+h2{font-size:18px;margin:0 0 12px}.muted{color:#64748b;font-size:13px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+input,select,button{font:inherit;border-radius:12px}
+input,select{width:100%;padding:14px;border:1px solid #cbd5e1;background:white}
+button{border:0;padding:14px 12px;font-weight:700;cursor:pointer}
+.primary{background:#2563eb;color:#fff}.dark{background:#111827;color:#fff}.green{background:#16a34a;color:#fff}.gray{background:#e5e7eb;color:#111827}.danger{background:#dc2626;color:white}
+.big{width:100%;font-size:18px;padding:17px;margin-bottom:9px}
+.result{border:1px solid #e2e8f0;border-radius:14px;padding:14px;margin-top:10px}
+.code{font-family:monospace;font-weight:700;color:#334155}.name{font-size:20px;font-weight:800;margin:5px 0}
+.loc{font-size:25px;font-weight:900;color:#166534;margin:8px 0}
+.hidden{display:none!important}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.grid button{padding:14px 5px;background:#e5e7eb}
+.grid button.active{background:#2563eb;color:white}
+.grid.pos{grid-template-columns:repeat(5,1fr)}
+.grid.pos button{font-size:13px;padding:12px 3px}
+.sectionTitle{font-size:13px;font-weight:800;text-transform:uppercase;color:#64748b;margin:16px 0 8px}
+.badge{display:inline-block;background:#dbeafe;color:#1d4ed8;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}
+#cameraBox{background:#000;border-radius:16px;overflow:hidden;position:relative;aspect-ratio:1/1}
+#cameraBox video, #cameraBox canvas{width:100%!important;height:100%!important;object-fit:cover}
+.scanLine{position:absolute;left:12%;right:12%;top:50%;height:2px;background:#22c55e;box-shadow:0 0 10px #22c55e;z-index:2}
+.small{font-size:12px}
+footer{text-align:center;color:#64748b;font-size:12px;padding:10px}
+</style>
+</head>
+<body>
+<header><h1>📦 Localiza Peças</h1><p>Consulte e guarde a localização física das peças</p></header>
+<main>
+
+<div class="card">
+  <button class="primary big" onclick="startScan()">📷 LER CÓDIGO DA PEÇA</button>
+  <div class="row">
+    <input id="search" placeholder="Digite o código ou descrição" oninput="searchParts()">
+    <button class="dark" onclick="searchParts()">🔎 Buscar</button>
+  </div>
+  <div id="searchResults"></div>
+</div>
+
+<div id="scannerCard" class="card hidden">
+  <h2>Leitura</h2>
+  <div id="cameraBox">
+    <div class="scanLine"></div>
+  </div>
+  <p id="scanStatus" class="muted">Aponte a câmera para o código de barras.</p>
+  <button class="gray big" onclick="stopScan()">Fechar câmera</button>
+</div>
+
+<div id="pieceCard" class="card hidden">
+  <span class="badge">PEÇA ENCONTRADA</span>
+  <div id="pieceCode" class="code"></div>
+  <div id="pieceName" class="name"></div>
+  <div class="sectionTitle">Localização atual</div>
+  <div id="currentLoc" class="loc">Não definida</div>
+  <button class="primary big" onclick="showLocationPicker()">📍 DEFINIR / ALTERAR LOCAL</button>
+</div>
+
+<div id="locationCard" class="card hidden">
+  <h2>Escolha onde guardar</h2>
+  <div class="sectionTitle">Área</div>
+  <div class="grid" id="areas"></div>
+  <div class="sectionTitle">Corredor / estante</div>
+  <div class="grid" id="shelves"></div>
+  <div class="sectionTitle">Posição</div>
+  <div class="grid pos" id="positions"></div>
+  <div id="selectedLoc" class="result hidden">
+    <div class="muted">Local escolhido</div>
+    <div class="loc" id="chosenText"></div>
+    <button class="green big" onclick="saveLocation()">💾 SALVAR LOCALIZAÇÃO</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Importar BRAVOS</h2>
+  <p class="muted">Importe uma nova planilha/CSV para atualizar códigos e descrições. As localizações já salvas no aparelho são preservadas pelo código.</p>
+  <input id="file" type="file" accept=".csv,.txt,.xlsx" onchange="importFile(event)">
+  <div id="importStatus" class="muted" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <h2>Resumo</h2>
+  <div id="summary" class="muted"></div>
+  <button class="gray big" onclick="clearSearch()">Limpar tela</button>
+</div>
+
+<footer>Os locais salvos ficam neste aparelho/navegador.</footer>
+</main>
+
+<script>
+const initialProducts = [{"codigo": "AC00265", "descricao": "ENGATE VIRTUS", "localizacao": "PU9999 SO99"}, {"codigo": "2GP061325", "descricao": "JG.TAPETE", "localizacao": "PU1 3  C1"}, {"codigo": "ACLV112.", "descricao": "KIT MODULO", "localizacao": "PU9999 LM99"}, {"codigo": "6EA035710", "descricao": "ALTO FALAN", "localizacao": "PU9999 LMA99"}, {"codigo": "V04010023C", "descricao": "CAMERA", "localizacao": "PU1 5  D1"}, {"codigo": "V04010037E", "descricao": "AMBIENTE L", "localizacao": "PU1 2  E99"}, {"codigo": "2G5601025Z31", "descricao": "RODA", "localizacao": "PU1 1  MAO99"}, {"codigo": "6EC035710:", "descricao": "ALTOFALAN", "localizacao": "PU1 8  B99"}, {"codigo": "V04010088A", "descricao": "KIT ALARME", "localizacao": "PU1 14 A1"}, {"codigo": "V04010037F", "descricao": "ANTENA", "localizacao": "PU1 9  B1"}, {"codigo": "V04010035C", "descricao": "MODULO COM", "localizacao": "PU1 12 A1"}, {"codigo": "V04011010C", "descricao": "CARREGADOR INDUÇÃO T-CROSS", "localizacao": "PU1 4  D1"}, {"codigo": "5G1064205", "descricao": "CAPA PEDAL", "localizacao": "PU9999 LM99"}, {"codigo": "APR035112B", "descricao": "CONTROLE", "localizacao": "PU2 7  B99"}, {"codigo": "6C0035849H", "descricao": "ANTENA", "localizacao": "PU1 5  C99"}, {"codigo": "5U0035152", "descricao": "RADIO", "localizacao": "PU1 1  C99"}, {"codigo": "5U0035849C", "descricao": "ANTENA", "localizacao": "PU1 5  B99"}, {"codigo": "5U0051473", "descricao": "VIVAVOZ", "localizacao": "PU2 5  B99"}, {"codigo": "1S0051559", "descricao": "CABO ANTEN", "localizacao": "PU1 9  C99"}, {"codigo": "1S0054620E", "descricao": "KIT ALARME", "localizacao": "PU1 2  A99"}, {"codigo": "V04010020", "descricao": "JG.SENSOR", "localizacao": "PU1 7  B99"}, {"codigo": "AC805717", "descricao": "ARO ADAPTADOR", "localizacao": "PU9999 LM99"}, {"codigo": "2H0075101C", "descricao": "PARABARRO", "localizacao": "PU3 3  D99"}, {"codigo": "V04010057A041", "descricao": "FRISOS", "localizacao": "PU4 2  B99"}, {"codigo": "V04010057B041", "descricao": "FRISOS", "localizacao": "PU4 2  A99"}, {"codigo": "V04010057D7X", "descricao": "FRISOS", "localizacao": "PU9999 LM99"}, {"codigo": "V04011029", "descricao": "SENSOR", "localizacao": "PU1 4  C99"}, {"codigo": "ACLV265", "descricao": "AUTOMATIZADOR", "localizacao": "PU1 2  C99"}, {"codigo": "JBL111", "descricao": "JBL", "localizacao": "PU1 1  E1"}, {"codigo": "AC8788P", "descricao": "SENSOR DE DIS", "localizacao": "PU1 11 B99"}, {"codigo": "RE20", "descricao": "RELE", "localizacao": "PU1 4  B99"}, {"codigo": "ACLV500", "descricao": "KIT MODULO", "localizacao": "PU2 6  B99"}, {"codigo": "AC1021", "descricao": "FRISO PORTA", "localizacao": "PU3 1  B99"}, {"codigo": "AC2002GP", "descricao": "DESCANSA BRAC", "localizacao": "PU4 1  A99"}, {"codigo": "ACK10287", "descricao": "KIT VIDRO ELE", "localizacao": "PU9999 LM99"}, {"codigo": "ACK10167", "descricao": "KIT FRISO", "localizacao": "PU4 3  A99"}, {"codigo": "AC7502", "descricao": "CAPOTA", "localizacao": "PU9999 PA99"}, {"codigo": "AC11607", "descricao": "ENGATE TAOS", "localizacao": "PU9999 MA99"}, {"codigo": "EST0212", "descricao": "ESTRIBO AMAROK", "localizacao": "PU9999 PA99"}, {"codigo": "AC355", "descricao": "KIT VIDRO ELETRICO", "localizacao": "PU9999 SO99"}, {"codigo": "AC000451.", "descricao": "ADAPTADOR ANTENA", "localizacao": "PU1 1  MAO1"}, {"codigo": "AC2764", "descricao": "ALTO FALANTE", "localizacao": "PU1 4  D99"}, {"codigo": "AC7393", "descricao": "MODULO ENGATE", "localizacao": "PU1 5  D99"}, {"codigo": "TAP5U7C", "descricao": "TAPETE CAÇAMBA SAVEIRO", "localizacao": "PU9999 SO1"}, {"codigo": "AC6EA", "descricao": "CALHA NOVO PO", "localizacao": "PU4 2  D99"}, {"codigo": "AC1009TC", "descricao": "CENTRAL MULTI", "localizacao": "PU1 7  C99"}, {"codigo": "AC200GP", "descricao": "ENGATE T-CROS", "localizacao": "PU9999 SO99"}, {"codigo": "AC2GP", "descricao": "CALHA T-CROSS", "localizacao": "PU9999 LM99"}, {"codigo": "AC2GPTC.", "descricao": "TAMPAO BAGAGI", "localizacao": "PU1 1  MAO99"}, {"codigo": "AC2H0", "descricao": "CALHA AMAROK", "localizacao": "PU9999 LM99"}, {"codigo": "AC0033", "descricao": "JOGO DE FRISO", "localizacao": "PU3 1  C99"}, {"codigo": "AC4117", "descricao": "CENTRALINA", "localizacao": "PU1 6  B99"}, {"codigo": "AC4730", "descricao": "SPOILER LATER", "localizacao": "PU9999 PA99"}, {"codigo": "ACTR111.", "descricao": "TRAVA ELETRIC", "localizacao": "PU9999 LM99"}, {"codigo": "AC5U0", "descricao": "CALHA ACRILIC", "localizacao": "PU4 3  D99"}, {"codigo": "AC5Z0", "descricao": "CALHA ACRILIC", "localizacao": "PU9999 LM99"}, {"codigo": "AC102778", "descricao": "CAPOTA SAVEIRO CABINE DUPLA COM GANCHO", "localizacao": "PU9999 LM99"}, {"codigo": "AC116043", "descricao": "ENGATE POLO", "localizacao": "PU9999 SO99"}, {"codigo": "CAB1114", "descricao": "CABO", "localizacao": "PU1 2  D99"}, {"codigo": "CAM224", "descricao": "CAMERA", "localizacao": "PU1 3  A99"}, {"codigo": "ACF0033", "descricao": "FRISO LATERAL", "localizacao": "PU3 1  D99"}];
+let products = initialProducts;
+let selectedCode = null, selectedArea = null, selectedShelf = null, selectedPos = null;
+let isScanning = false;
+
+const locations = JSON.parse(localStorage.getItem('localizacoes_pecas_v2') || '{}');
+
+function normalize(s){ return String(s||'').trim().toUpperCase(); }
+
+function saveLocationsStore(){ localStorage.setItem('localizacoes_pecas_v2', JSON.stringify(locations)); }
+
+function mergedProducts(){
+  return products.map(p => ({...p, localizacao: locations[p.codigo] ?? p.localizacao ?? ''}));
+}
+
+function updateSummary(){
+  const total=products.length;
+  const withLoc=products.filter(p => (locations[p.codigo] ?? p.localizacao ?? '').trim()).length;
+  document.getElementById('summary').innerHTML =
+    `<b>${total}</b> peças carregadas • <b>${withLoc}</b> com localização definida`;
+}
+updateSummary();
+
+function findProduct(code){
+  const c=normalize(code);
+  return products.find(p=>normalize(p.codigo)===c) ||
+         products.find(p=>normalize(p.codigo).replace(/[^A-Z0-9]/g,'')===c.replace(/[^A-Z0-9]/g,''));
+}
+
+function showProduct(p){
+  if(!p) return;
+  selectedCode=p.codigo;
+  document.getElementById('pieceCode').textContent=p.codigo;
+  document.getElementById('pieceName').textContent=p.descricao;
+  document.getElementById('currentLoc').textContent=locations[p.codigo] || p.localizacao || 'Não definida';
+  document.getElementById('pieceCard').classList.remove('hidden');
+  document.getElementById('locationCard').classList.add('hidden');
+  document.getElementById('searchResults').innerHTML='';
+  window.scrollTo({top:document.getElementById('pieceCard').offsetTop-80,behavior:'smooth'});
+}
+
+function searchParts(){
+  const q=normalize(document.getElementById('search').value);
+  const box=document.getElementById('searchResults');
+  if(!q){box.innerHTML='';return;}
+  const found=mergedProducts().filter(p=>normalize(p.codigo).includes(q)||normalize(p.descricao).includes(q)).slice(0,30);
+  if(!found.length){box.innerHTML='<div class="result">Nenhuma peça encontrada.</div>';return;}
+  box.innerHTML=found.map(p=>{
+    const loc=p.localizacao||'Não definida';
+    return `<div class="result" onclick='selectByCode(${JSON.stringify(p.codigo)})'>
+      <div class="code">${escapeHtml(p.codigo)}</div>
+      <div><b>${escapeHtml(p.descricao)}</b></div>
+      <div class="loc" style="font-size:19px">${escapeHtml(loc)}</div>
+    </div>`;
+  }).join('');
+}
+function selectByCode(c){ const p=findProduct(c); showProduct(p); }
+
+function showLocationPicker(){
+  selectedArea=null;selectedShelf=null;selectedPos=null;
+  document.getElementById('locationCard').classList.remove('hidden');
+  renderAreas(); renderShelves(); renderPositions();
+  window.scrollTo({top:document.getElementById('locationCard').offsetTop-70,behavior:'smooth'});
+}
+function renderAreas(){
+  document.getElementById('areas').innerHTML=['A','B','C'].map(a=>
+    `<button class="${selectedArea===a?'active':''}" onclick="chooseArea('${a}')">${a}</button>`).join('');
+}
+function chooseArea(a){selectedArea=a;selectedShelf=null;selectedPos=null;renderAreas();renderShelves();renderPositions();}
+function renderShelves(){
+  const el=document.getElementById('shelves');
+  if(!selectedArea){el.innerHTML='<div class="muted">Escolha A, B ou C.</div>';return;}
+  el.innerHTML=Array.from({length:16},(_,i)=>i+1).map(n=>
+    `<button class="${selectedShelf===n?'active':''}" onclick="chooseShelf(${n})">${selectedArea}${n}</button>`).join('');
+}
+function chooseShelf(n){selectedShelf=n;selectedPos=null;renderShelves();renderPositions();}
+function renderPositions(){
+  const el=document.getElementById('positions');
+  if(!selectedShelf){el.innerHTML='<div class="muted">Escolha a estante.</div>';document.getElementById('selectedLoc').classList.add('hidden');return;}
+  const max=selectedShelf===16?20:40;
+  el.innerHTML=Array.from({length:max},(_,i)=>{
+    const n=i+1;
+    const letter=String.fromCharCode(65+(i%13));
+    const label=`${selectedArea}${selectedShelf}-${n}${letter}`;
+    return `<button class="${selectedPos===label?'active':''}" onclick='choosePos(${JSON.stringify(label)})'>${n}${letter}</button>`;
+  }).join('');
+}
+function choosePos(label){
+  selectedPos=label;
+  document.getElementById('chosenText').textContent=label;
+  document.getElementById('selectedLoc').classList.remove('hidden');
+}
+function saveLocation(){
+  if(!selectedCode||!selectedPos)return;
+  locations[selectedCode]=selectedPos;
+  saveLocationsStore();
+  const p=findProduct(selectedCode);
+  showProduct(p);
+  alert('Localização salva: '+selectedPos);
+  updateSummary();
+}
+
+function startScan(){
+  if(isScanning) return;
+  document.getElementById('scannerCard').classList.remove('hidden');
+  const status=document.getElementById('scanStatus');
+  status.textContent='Iniciando câmera...';
+
+  Quagga.init({
+    inputStream: {
+      name: "Live",
+      type: "LiveStream",
+      target: document.querySelector('#cameraBox'),
+      constraints: {
+        facingMode: "environment"
+      }
+    },
+    decoder: {
+      readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader", "codabar_reader", "upc_reader"]
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      status.textContent = 'Erro ao abrir a câmera. Verifique as permissões ou se o site possui HTTPS.';
+      return;
+    }
+    isScanning = true;
+    Quagga.start();
+    status.textContent = 'Aponte a câmera para o código de barras...';
+  });
+
+  Quagga.offDetected();
+  Quagga.onDetected(onBarcodeDetected);
+}
+
+function onBarcodeDetected(result) {
+  if (!result || !result.codeResult || !result.codeResult.code) return;
+  const raw = result.codeResult.code;
+  document.getElementById('search').value = raw;
+  const p = findProduct(raw);
+  
+  if (p) {
+    stopScan();
+    showProduct(p);
+  } else {
+    document.getElementById('scanStatus').textContent = 'Código lido: ' + raw + ' — não encontrado no BRAVOS.';
+  }
+}
+
+function stopScan(){
+  if (isScanning) {
+    Quagga.stop();
+    isScanning = false;
+  }
+  document.getElementById('scannerCard').classList.add('hidden');
+}
+
+function clearSearch(){
+  document.getElementById('search').value='';
+  document.getElementById('searchResults').innerHTML='';
+  document.getElementById('pieceCard').classList.add('hidden');
+  document.getElementById('locationCard').classList.add('hidden');
+  selectedCode=null;
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+
+function parseCSV(text){
+  const lines=text.replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
+  const out=[];
+  for(const line of lines){
+    if(/^codigo_barras\s*,/i.test(line)) continue;
+    const parts=line.split(',');
+    if(parts.length>=2){
+      const code=parts[0].trim(), desc=parts[1].trim();
+      if(code) out.push({codigo:code,descricao:desc,localizacao:parts[3]?.trim()||parts[2]?.trim()||''});
+    }
+  }
+  return out;
+}
+function importFile(ev){
+  const file=ev.target.files[0]; if(!file)return;
+  const status=document.getElementById('importStatus');
+  if(file.name.toLowerCase().endsWith('.xlsx')){
+    status.textContent='Para XLSX, salve/exporte a planilha do BRAVOS como CSV e importe o CSV nesta versão.';
+    return;
+  }
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const incoming=parseCSV(reader.result);
+    if(!incoming.length){status.textContent='Não encontrei produtos nesse arquivo.';return;}
+    const map=new Map(products.map(p=>[normalize(p.codigo),p]));
+    for(const p of incoming){
+      const key=normalize(p.codigo);
+      const old=map.get(key);
+      map.set(key,{codigo:p.codigo,descricao:p.descricao,localizacao:locations[p.codigo] ?? (old?.localizacao||p.localizacao||'')});
+    }
+    products=[...map.values()];
+    status.innerHTML=`Importação concluída: <b>${incoming.length}</b> registros processados. Localizações salvas foram preservadas.`;
+    updateSummary(); searchParts();
+  };
+  reader.readAsText(file,'UTF-8');
+}
+</script>
+</body>
+</html>
